@@ -7,14 +7,74 @@ workflowInputs:
   demoRunId:
     type: String
   readinessResult:
-    type: Enum
-    enumValues:
-      - READY
-      - NOT READY
+    type: String
+    required: true
   failedChecks:
     type: String
+  slackDestinationId:
+    type: String
+    required: true
+    validations:
+      - pattern: '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
+        errorMessage: Invalid format. Please provide a valid UUID.
+        type: regex
+  slackChannel:
+    type: String
+    required: true
 
 steps:
+  - name: routeReadinessResult
+    type: switch
+    switch:
+      - condition: ${{ .workflowInputs.readinessResult == "READY" }}
+        next: sendReady
+      - condition: ${{ .workflowInputs.readinessResult == "NOT READY" }}
+        next: formatFailedChecks
+    next: sendUnexpectedResult
+
+  - name: sendReady
+    type: action
+    action: newrelic.notification.sendSlack
+    version: 1
+    inputs:
+      destinationId: ${{ .workflowInputs.slackDestinationId }}
+      channel: ${{ .workflowInputs.slackChannel }}
+      text: |-
+        ✅ *Production Readiness Review: READY*
+
+        *Service:* ${{ .workflowInputs.service }}
+        *Run ID:* ${{ .workflowInputs.demoRunId }}
+
+        All required observability checks passed.
+
+        Autopilot review was not required because the deterministic Observability Contract returned READY.
+    next: end
+
+  - name: formatFailedChecks
+    type: assign
+    inputs:
+      text: '${{ .workflowInputs.failedChecks | split(",") | map(gsub("^ +| +$"; "") | "• " + .) | join("\n") }}'
+    next: sendNotReadyStarted
+
+  - name: sendNotReadyStarted
+    type: action
+    action: newrelic.notification.sendSlack
+    version: 1
+    inputs:
+      destinationId: ${{ .workflowInputs.slackDestinationId }}
+      channel: ${{ .workflowInputs.slackChannel }}
+      text: |-
+        ❌ *Production Readiness Review: NOT READY*
+
+        *Service:* ${{ .workflowInputs.service }}
+        *Run ID:* ${{ .workflowInputs.demoRunId }}
+
+        *Failed checks:*
+        ${{ .steps.formatFailedChecks.outputs.text }}
+
+        🔎 Autopilot is reviewing the failed observability checks...
+    next: runAutopilot
+
   - name: runAutopilot
     type: action
     action: newrelic.autopilot.run
@@ -73,3 +133,81 @@ steps:
           expression: .errorMessage
         - name: response
           expression: .response.finalAnswer
+    ignoreErrors: true
+    next: checkAutopilotResponse
+
+  - name: checkAutopilotResponse
+    type: switch
+    switch:
+      - condition: ${{ (.steps.runAutopilot.outputs.response // "") != "" }}
+        next: formatAutopilotReview
+    next: sendAutopilotFallback
+
+  - name: formatAutopilotReview
+    type: assign
+    inputs:
+      text: '${{ (.steps.runAutopilot.outputs.response // "") as $r | (if ($r|type)=="string" then ($r | try fromjson catch null) else $r end) as $json | (if ($json|type)=="array" then ($json[0].text // ($json | tostring)) elif ($json|type)=="object" and ($json.card.body|type)=="array" then [ $json.card.body[] | if .type=="Text" then (.value // "") else "" end ] | join("\n\n") elif ($json|type)=="object" and ($json.text|type)=="string" then $json.text else ($r | tostring) end) | gsub("\\*\\*"; "*") | gsub("### "; "*") | gsub("## "; "*") }}'
+    next: sendNotReadyReview
+
+  - name: sendNotReadyReview
+    type: action
+    action: newrelic.notification.sendSlack
+    version: 1
+    inputs:
+      destinationId: ${{ .workflowInputs.slackDestinationId }}
+      channel: ${{ .workflowInputs.slackChannel }}
+      text: |-
+        ❌ *Production Readiness Review: NOT READY*
+
+        *Service:* ${{ .workflowInputs.service }}
+        *Run ID:* ${{ .workflowInputs.demoRunId }}
+
+        *Failed checks:*
+        ${{ .steps.formatFailedChecks.outputs.text }}
+
+        The deterministic Observability Contract returned NOT READY.
+
+        ────────────────────
+        *Autopilot Review*
+        ────────────────────
+
+        ${{ .steps.formatAutopilotReview.outputs.text }}
+    next: end
+
+  - name: sendAutopilotFallback
+    type: action
+    action: newrelic.notification.sendSlack
+    version: 1
+    inputs:
+      destinationId: ${{ .workflowInputs.slackDestinationId }}
+      channel: ${{ .workflowInputs.slackChannel }}
+      text: |-
+        ❌ *Production Readiness Review: NOT READY*
+
+        *Service:* ${{ .workflowInputs.service }}
+        *Run ID:* ${{ .workflowInputs.demoRunId }}
+
+        *Failed checks:*
+        ${{ .steps.formatFailedChecks.outputs.text }}
+
+        Autopilot review could not be completed.
+        The deterministic PRR result remains NOT READY.
+    next: end
+
+  - name: sendUnexpectedResult
+    type: action
+    action: newrelic.notification.sendSlack
+    version: 1
+    inputs:
+      destinationId: ${{ .workflowInputs.slackDestinationId }}
+      channel: ${{ .workflowInputs.slackChannel }}
+      text: |-
+        ⚠️ *Production Readiness Review: ERROR*
+
+        *Service:* ${{ .workflowInputs.service }}
+        *Run ID:* ${{ .workflowInputs.demoRunId }}
+
+        Unexpected readiness result received: `${{ .workflowInputs.readinessResult }}`
+
+        Autopilot was not started. Please inspect the deterministic readiness check.
+    next: end

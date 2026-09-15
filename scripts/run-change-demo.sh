@@ -9,6 +9,13 @@ if [ "$mode" != "complete" ] && [ "$mode" != "incomplete" ] && [ "$mode" != "reg
   exit 2
 fi
 
+if [ -f "$repo_dir/.env" ]; then
+  set -a
+  # shellcheck disable=SC1091
+  . "$repo_dir/.env"
+  set +a
+fi
+
 demo_run_id="${DEMO_RUN_ID:-$(date -u '+%Y%m%d-%H%M%S')-$$}"
 export DEMO_RUN_ID="$demo_run_id"
 export OBSERVABILITY_MODE="$mode"
@@ -44,3 +51,5 @@ printf 'service:\nprr-demo-checkout\n\n'
 printf 'demoRunId:\n%s\n\n' "$DEMO_RUN_ID"
 printf 'readinessResult:\n%s\n\n' "$readiness_result"
 printf 'failedChecks:\n%s\n' "$failed_checks"
+printf '\nslackDestinationId:\n%s\n' "${SLACK_DESTINATION_ID:-<set in .env>}"
+printf '\nslackChannel:\n%s\n' "${SLACK_CHANNEL:-<set in .env>}"
