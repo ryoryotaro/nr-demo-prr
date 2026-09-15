@@ -81,42 +81,27 @@ steps:
     version: '1'
     inputs:
       prompt: |-
-        You are performing an AI-assisted Production Readiness Review. This is not an incident root cause analysis.
+        Perform an AI-assisted Production Readiness Review for service ${{ .workflowInputs.service }}, demo.run_id ${{ .workflowInputs.demoRunId }}, in account ${{ .workflowConstants.accountId }}. This review will be posted to Slack.
 
-        The deterministic Observability Contract has already evaluated this service. Its READY or NOT READY result is authoritative. Do not override, revise, or independently re-decide that result. The deterministic Observability Contract is the complete list of mandatory readiness requirements for this review.
+        The deterministic Observability Contract already returned ${{ .workflowInputs.readinessResult }}. That result is authoritative. Do not re-evaluate or override it. Investigate only these failed checks: ${{ .workflowInputs.failedChecks }}.
 
-        Investigate the actual New Relic telemetry for service ${{ .workflowInputs.service }} and demo.run_id ${{ .workflowInputs.demoRunId }} in account ${{ .workflowConstants.accountId }}. The authoritative result is ${{ .workflowInputs.readinessResult }} and the reported failed checks are ${{ .workflowInputs.failedChecks }}.
+        This application uses the New Relic Go APM Agent, not OpenTelemetry. Do not recommend OpenTelemetry APIs, SDKs, instrumentation, Resource attributes, Collector, or TraceContext configuration. Do not add unrelated requirements or discuss Logs, Golden Metrics, CPU, SLOs, Alerts, dashboards, infrastructure, or general service health.
 
-        Also look for a Change Tracking Deployment event associated with this service and current demo run. Match the Change Tracking custom attribute demoRunId to the current demo.run_id value. If the event contains a Git commit SHA and GitHub context is available, use the associated Pull Request only when it directly helps explain an item in failedChecks. Do not perform a general code review and do not introduce additional readiness requirements from the Pull Request. If GitHub PR context is unavailable, state that explicitly and continue using telemetry and Memory.
+        Strictly separate telemetry facts from inference. Do not claim an implementation cause, HTTP header, agent setting, library, or code path unless directly verified. If the cause is not observable, say that the implementation-level cause is unknown. Use Memory only for operational context directly related to failedChecks; never use it as a readiness rule.
 
-        This application is instrumented with the New Relic Go APM Agent, not OpenTelemetry. Do not recommend or refer to OpenTelemetry configuration, APIs, SDKs, instrumentation, Resource attributes such as service.name, an OTel Collector, span.SetAttribute(), or OTel TraceContext configuration. Do not substitute a different instrumentation technology for the one used by this application.
-
-        Focus only on the Observability Contract checks listed in failedChecks. You may inspect other telemetry only when it is directly necessary to explain one of those failed checks. Do not perform a general health review of the service. Do not introduce unrelated observability requirements.
-
-        Do not treat alerts, logs, Golden Metrics, throughput, CPU, error rate, SLOs, dashboards, infrastructure, service.name, or any telemetry absent from the Contract as additional readiness concerns. Do not recommend logging, alerts, SLOs, dashboards, infrastructure monitoring, additional metrics, or unrelated instrumentation. Do not analyze unrelated telemetry conditions, active alerts, missing logs, performance trends, or general service health. Do not provide general observability checklists.
-
-        Verify the failed checks against current telemetry where possible. Use only saved Autopilot Memory that is directly relevant to a failed check. Treat Memory as context, never as a readiness rule. Do not assume or invent Memory content.
-
-        Strictly separate facts from inference. A condition directly observed in telemetry, such as different trace.id values for checkout and payment, is a verified fact. A GitHub code change shown by the associated Pull Request is verified change context. Causality between a change and a failed telemetry check is an interpretation unless directly verified. Do not claim causality solely because a Pull Request and telemetry regression are temporally adjacent. An implementation-level cause is not a verified fact unless it is directly observable. Do not claim that a specific HTTP header, agent setting, library, API, HTTP client instrumentation, application-code branch, or code path caused a failure unless directly verified. A broken distributed trace is a verified telemetry symptom; its exact implementation cause may remain unknown. When available evidence cannot establish the root cause, explicitly state that the implementation-level cause is unknown. Use terms such as likely, possible, or inferred for any interpretation that is not directly verified.
-
-        Write the response in Japanese and keep it concise. The final answer must contain exactly the following five Markdown headings, in this order, and no other headings. Do not add a title, summary, preface, conclusion, entity list, analysis window, appendix, or text before the first heading or after the fifth section.
+        Respond in Japanese, approximately 700 characters or fewer. Use exactly these four headings and no title, preface, conclusion, or other section:
 
         ## 1. Verified telemetry facts
-        State only facts directly verified from current New Relic telemetry for this demo.run_id and only as they relate to failedChecks. Do not include inferred causes, Memory, business impact, or recommendations. It is acceptable to mention a passing signal only when it directly helps explain a failed check. For trace continuity, report the observed trace.id relationship, but do not infer which propagation mechanism failed. If a fact cannot be verified, state that explicitly.
+        Only facts directly observed for this demo.run_id and failedChecks. No inference, Memory, impact, or recommendation.
 
         ## 2. Saved operational context from Memory
-        Include only Autopilot Memory actually retrieved and directly related to failedChecks. Do not include telemetry findings, general knowledge, or interpretations here, and do not treat telemetry as Memory. Do not invent or assume Memory content. If no relevant Memory is found, this section must contain only: No relevant Memory was found.
+        Only relevant Memory actually retrieved. If none: No relevant Memory was found.
 
-        ## 3. Verified change context from Change Tracking / GitHub
-        State only Change Tracking and GitHub facts directly relevant to failedChecks, such as the matched deployment, commit SHA, Pull Request identity, and relevant changed files or diff content. Do not include causal conclusions or perform a general code review. If no relevant GitHub change context is available, this section must state: No relevant GitHub change context was available.
+        ## 3. Interpretation
+        Explain only what investigation or decision is difficult because of each missing signal. Clearly mark inference and unknown causes.
 
-        ## 4. Interpretation
-        Combine verified telemetry facts, relevant saved Memory, and verified change context only to explain what investigation or operational decision becomes difficult because of each failed check. Treat any relationship between a code change and telemetry failure as a possibility unless causality is directly verified. Do not expand into a general health assessment. If trace continuity is missing and the implementation cause is not directly verified, state that continuity may be lost somewhere in distributed trace context propagation but available evidence does not identify the implementation-level cause. Never present a possible cause as fact.
-
-        ## 5. Recommendation
-        Recommend only the minimum outcome needed to resolve each item in failedChecks: restore the required attribute to checkout Transaction telemetry, restore distributed trace continuity between the named services, as applicable, then generate a new demo.run_id and rerun the deterministic Readiness Check. Prefer intent-level remediation. If implementation details are not verified, do not name or prescribe a specific API, function, header, library, agent setting, configuration flag, or code-level change. Do not recommend OpenTelemetry or any Contract-external improvement.
-
-        If readinessResult is READY, do not search for failures or conduct a general observability or code review. Briefly state that all Contract checks passed and explain only what investigations the required telemetry and verified deployment context enable. Keep exactly the same five-heading format, do not re-evaluate readiness, and do not recommend additional improvements.
+        ## 4. Recommendation
+        Give only minimal intent-level remediation for failedChecks and rerun with a new demo.run_id. Do not speculate about APIs, headers, settings, or code changes.
       context:
         - description: service
           value: ${{ .workflowInputs.service }}
@@ -146,7 +131,7 @@ steps:
   - name: formatAutopilotReview
     type: assign
     inputs:
-      text: '${{ (.steps.runAutopilot.outputs.response // "") as $r | (if ($r|type)=="string" then ($r | try fromjson catch null) else $r end) as $json | (if ($json|type)=="array" then ($json[0].text // ($json | tostring)) elif ($json|type)=="object" and ($json.card.body|type)=="array" then [ $json.card.body[] | if .type=="Text" then (.value // "") else "" end ] | join("\n\n") elif ($json|type)=="object" and ($json.text|type)=="string" then $json.text else ($r | tostring) end) | gsub("\\*\\*"; "*") | gsub("### "; "*") | gsub("## "; "*") }}'
+      text: '${{ (.steps.runAutopilot.outputs.response // "") as $r | (if ($r|type)=="string" then ($r | try fromjson catch null) else $r end) as $json | (if ($json|type)=="array" then ($json[0].text // ($json | tostring)) elif ($json|type)=="object" and ($json.card.body|type)=="array" then [ $json.card.body[] | if .type=="Text" then (.value // "") else "" end ] | join("\n\n") elif ($json|type)=="object" and ($json.text|type)=="string" then $json.text else ($r | tostring) end) | gsub("\\*\\*"; "*") | gsub("### "; "*") | gsub("## "; "*") as $text | if ($text | length) > 850 then $text[0:850] + "\n...\n[Autopilot review truncated for Slack]" else $text end }}'
     next: sendNotReadyReview
 
   - name: sendNotReadyReview
