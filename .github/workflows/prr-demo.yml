@@ -1,0 +1,76 @@
+name: Production Readiness Review Demo
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Observability mode to demonstrate
+        type: choice
+        options:
+          - complete
+          - regression
+        default: complete
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  prr-demo:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      NEW_RELIC_LICENSE_KEY: ${{ secrets.NEW_RELIC_LICENSE_KEY }}
+      NEW_RELIC_USER_KEY: ${{ secrets.NEW_RELIC_USER_KEY }}
+      NEW_RELIC_ACCOUNT_ID: ${{ secrets.NEW_RELIC_ACCOUNT_ID }}
+      NEW_RELIC_NERDGRAPH_ENDPOINT: https://api.newrelic.com/graphql
+      SLACK_DESTINATION_ID: ${{ vars.SLACK_DESTINATION_ID }}
+      SLACK_CHANNEL: ${{ vars.SLACK_CHANNEL }}
+      GITHUB_REPOSITORY_URL: ${{ github.server_url }}/${{ github.repository }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Verify prerequisites and commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          for name in NEW_RELIC_LICENSE_KEY NEW_RELIC_USER_KEY NEW_RELIC_ACCOUNT_ID SLACK_DESTINATION_ID SLACK_CHANNEL; do
+            if [[ -z "${!name:-}" ]]; then
+              echo "Required GitHub Secret or Variable is missing: $name" >&2
+              exit 1
+            fi
+          done
+          checked_out_sha="$(git rev-parse HEAD)"
+          if [[ "$checked_out_sha" != "$GITHUB_SHA" ]]; then
+            echo "Checked-out commit does not match GITHUB_SHA." >&2
+            exit 1
+          fi
+          echo "Commit: $checked_out_sha"
+          docker compose version
+
+      - name: Run pre-flight tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test ./...
+          go vet ./...
+          for script in scripts/*.sh; do
+            sh -n "$script"
+          done
+
+      - name: Run Production Readiness Review demo
+        run: ./scripts/run-change-demo.sh "${{ inputs.mode }}"
+
+      - name: Clean up Docker Compose
+        if: always()
+        run: docker compose down -v
