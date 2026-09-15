@@ -1,0 +1,8 @@
+service: prr-demo-checkout
+
+required_attributes:
+  - tenant.id
+  - customer.plan
+
+required_dependencies:
+  - prr-demo-payment

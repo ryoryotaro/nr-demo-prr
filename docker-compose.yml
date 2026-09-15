@@ -1,0 +1,33 @@
+services:
+  payment-service:
+    build:
+      context: .
+      args:
+        SERVICE: payment
+    environment:
+      PORT: "8081"
+      NEW_RELIC_APP_NAME: prr-demo-payment
+      NEW_RELIC_LICENSE_KEY: ${NEW_RELIC_LICENSE_KEY}
+      NEW_RELIC_DISTRIBUTED_TRACING_ENABLED: "true"
+      NEW_RELIC_APPLICATION_LOGGING_ENABLED: "false"
+      OBSERVABILITY_MODE: ${OBSERVABILITY_MODE:-complete}
+      DEMO_RUN_ID: ${DEMO_RUN_ID:-manual}
+
+  checkout-service:
+    build:
+      context: .
+      args:
+        SERVICE: checkout
+    environment:
+      PORT: "8080"
+      PAYMENT_URL: http://payment-service:8081/pay
+      NEW_RELIC_APP_NAME: prr-demo-checkout
+      NEW_RELIC_LICENSE_KEY: ${NEW_RELIC_LICENSE_KEY}
+      NEW_RELIC_DISTRIBUTED_TRACING_ENABLED: "true"
+      NEW_RELIC_APPLICATION_LOGGING_ENABLED: "false"
+      OBSERVABILITY_MODE: ${OBSERVABILITY_MODE:-complete}
+      DEMO_RUN_ID: ${DEMO_RUN_ID:-manual}
+    ports:
+      - "8080:8080"
+    depends_on:
+      - payment-service
