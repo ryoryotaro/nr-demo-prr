@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -85,5 +86,51 @@ func TestLoadContractRejectsUnsupportedYAML(t *testing.T) {
 
 	if _, err := loadContract(path); err == nil {
 		t.Fatal("expected unsupported YAML to fail")
+	}
+}
+
+func TestBuildReadinessReportUsesCheckResults(t *testing.T) {
+	report := buildReadinessReport(
+		"prr-demo-checkout",
+		"run-123",
+		"NOT READY",
+		[]checkResult{{Name: "tenant.id", Passed: true}, {Name: "customer.plan", Passed: false}},
+		[]checkResult{{Name: "prr-demo-payment", Passed: false}},
+	)
+
+	if report.DemoRunID != "run-123" || report.Result != "NOT READY" {
+		t.Fatalf("unexpected report identity: %#v", report)
+	}
+	want := []readinessCheck{
+		{Name: "tenant.id", Status: "PASS", Evidence: "Observed for demo.run_id=run-123"},
+		{Name: "customer.plan", Status: "FAIL", Evidence: "NOT OBSERVED for demo.run_id=run-123"},
+		{Name: "prr-demo-payment", Status: "FAIL", Evidence: "NO shared trace.id for demo.run_id=run-123"},
+	}
+	if len(report.Checks) != len(want) {
+		t.Fatalf("unexpected check count: %d", len(report.Checks))
+	}
+	for index := range want {
+		if report.Checks[index] != want[index] {
+			t.Fatalf("check %d: got %#v want %#v", index, report.Checks[index], want[index])
+		}
+	}
+}
+
+func TestWriteReadinessReport(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "readiness.json")
+	report := readinessReport{Service: "checkout", DemoRunID: "run-1", Result: "READY"}
+	if err := writeReadinessReport(path, report); err != nil {
+		t.Fatal(err)
+	}
+	contents, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded readinessReport
+	if err := json.Unmarshal(contents, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(decoded, report) {
+		t.Fatalf("got %#v want %#v", decoded, report)
 	}
 }

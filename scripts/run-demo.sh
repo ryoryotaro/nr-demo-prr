@@ -55,7 +55,11 @@ while [ "$attempt" -le "$max_attempts" ]; do
   fi
 
   set +e
-  readiness_output="$(./scripts/check-readiness.sh 2>&1)"
+  if [ -n "${READINESS_JSON_OUTPUT:-}" ]; then
+    readiness_output="$(./scripts/check-readiness.sh --json-output "$READINESS_JSON_OUTPUT" 2>&1)"
+  else
+    readiness_output="$(./scripts/check-readiness.sh 2>&1)"
+  fi
   readiness_status=$?
   set -e
 

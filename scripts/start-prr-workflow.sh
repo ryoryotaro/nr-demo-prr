@@ -4,6 +4,7 @@ set -eu
 
 readiness_result="${1:-}"
 failed_checks="${2:-}"
+readiness_evidence="${3:-}"
 
 case "$readiness_result" in
   READY|"NOT READY") ;;
@@ -15,6 +16,10 @@ esac
 
 if [ -z "$failed_checks" ]; then
   printf '[ERROR] Failed checks are required.\n' >&2
+  exit 2
+fi
+if [ -z "$readiness_evidence" ]; then
+  printf '[ERROR] Readiness evidence is required.\n' >&2
   exit 2
 fi
 
@@ -54,6 +59,7 @@ workflow_inputs="$(jq -n \
   --arg demo_run_id "$DEMO_RUN_ID" \
   --arg readiness_result "$readiness_result" \
   --arg failed_checks "$failed_checks" \
+  --arg readiness_evidence "$readiness_evidence" \
   --arg destination_id "$SLACK_DESTINATION_ID" \
   --arg channel "$SLACK_CHANNEL" \
   '[
@@ -61,6 +67,7 @@ workflow_inputs="$(jq -n \
     {key:"demoRunId",value:$demo_run_id},
     {key:"readinessResult",value:$readiness_result},
     {key:"failedChecks",value:$failed_checks},
+    {key:"readinessEvidence",value:$readiness_evidence},
     {key:"slackDestinationId",value:$destination_id},
     {key:"slackChannel",value:$channel}
   ]')"
