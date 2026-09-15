@@ -21,10 +21,15 @@ demo_run_id="${DEMO_RUN_ID:-$(date -u '+%Y%m%d-%H%M%S')-$$}"
 initial_wait="${NEW_RELIC_INGEST_WAIT_SECONDS:-10}"
 retry_wait="${NEW_RELIC_INGEST_RETRY_SECONDS:-5}"
 max_attempts="${NEW_RELIC_INGEST_ATTEMPTS:-25}"
+accept_any_result="${PRR_ACCEPT_ANY_RESULT:-0}"
 
 case "$initial_wait:$retry_wait:$max_attempts" in
   *[!0-9:]*|:*|*::*|*:) printf 'Ingest wait settings must be non-negative integers.\n' >&2; exit 2 ;;
 esac
+if [ "$accept_any_result" != "0" ] && [ "$accept_any_result" != "1" ]; then
+  printf 'PRR_ACCEPT_ANY_RESULT must be 0 or 1.\n' >&2
+  exit 2
+fi
 
 export OBSERVABILITY_MODE="$mode"
 export DEMO_RUN_ID="$demo_run_id"
@@ -87,6 +92,11 @@ printf '\n%s\n' "$readiness_output"
 if [ "$readiness_status" -eq 2 ]; then
   printf '\nDemo stopped: readiness check returned ERROR.\n' >&2
   exit 2
+fi
+
+if [ "$accept_any_result" -eq 1 ] && { [ "$readiness_status" -eq 0 ] || [ "$readiness_status" -eq 1 ]; }; then
+  printf '\nREADINESS RESULT CAPTURED\n'
+  exit 0
 fi
 
 if [ "$mode" = "complete" ] && [ "$readiness_status" -eq 0 ]; then
