@@ -895,3 +895,28 @@ Workflowは`actions/checkout`で取得したHEADと`GITHUB_SHA`が一致する�
 一方、Functional Test、Docker、Change Tracking API、Readiness Check実行、Workflow Automation Start API、必須Secret/Variableなどに異常があればスクリプトが非0で終了し、JobはFAILします。PRR判定結果とPRRシステムの実行エラーを混同しません。
 
 最後のcleanup stepは`if: always()`で`docker compose down -v`を実行するため、成功・失敗にかかわらずcontainer、network、volumeを片付けます。
+
+## Phase 7.1: Run-scoped Autopilot Investigation
+
+Readiness Checkは以前から`DEMO_RUN_ID`を必須とし、属性を`demo.run_id`で、依存関係をcurrent runのcheckout Spanから得た`trace.id`で限定しています。Phase 7.1では、この決定論的判定のscopeをAutopilotにも明示的に引き継ぎます。
+
+Readiness CLIへ`--json-output <path>`を追加しました。通常の人間向け出力と終了コードは変えず、同じNerdGraph問い合わせから次のmachine-readable reportも生成できます。
+
+```json
+{
+  "service": "prr-demo-checkout",
+  "demoRunId": "20260915-example",
+  "result": "NOT READY",
+  "checks": [
+    {"name":"tenant.id","status":"PASS","evidence":"Observed for demo.run_id=20260915-example"},
+    {"name":"customer.plan","status":"FAIL","evidence":"NOT OBSERVED for demo.run_id=20260915-example"},
+    {"name":"prr-demo-payment","status":"FAIL","evidence":"NO shared trace.id for demo.run_id=20260915-example"}
+  ]
+}
+```
+
+`run-change-demo.sh`は一時JSON reportから`readinessResult`、`failedChecks`、`readinessEvidence`を読みます。これらをmodeから推測せず、同じReadiness実行の結果からWorkflow Start APIへ渡します。Workflowにはrequired String inputの`readinessEvidence`を追加しています。
+
+Autopilotのprimary scopeは`demoRunId`です。customer.planはcurrent `demo.run_id`のcheckout Telemetryだけで調査します。Trace continuityはcurrent runから得たcheckoutの`trace.id`にpaymentが存在するかで調査します。時間窓は問い合わせ範囲の補助にしか使わず、別runのTelemetry、transaction count、throughput、error rate、Functional Test成功をTrace continuityの証拠にしません。
+
+`demo.run_id`を直接持たないTelemetryは、current runから導出した`trace.id`、transaction IDなどで関連付けられる場合だけ利用します。関連付けできないTelemetryを別runのデータで代用しません。READY / NOT READYの判定、GitHub ActionsのSUCCESS semantics、Slack blocks、native Autopilot responseの転送方法は変更していません。

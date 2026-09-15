@@ -18,7 +18,7 @@ trap 'rm -rf "$build_dir"' EXIT HUP INT TERM
 go build -o "$build_dir/readiness" ./cmd/readiness
 
 set +e
-"$build_dir/readiness" observability-contract.yaml
+"$build_dir/readiness" "$@" observability-contract.yaml
 status=$?
 set -e
 

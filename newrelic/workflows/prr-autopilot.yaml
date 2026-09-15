@@ -11,6 +11,9 @@ workflowInputs:
     required: true
   failedChecks:
     type: String
+  readinessEvidence:
+    type: String
+    required: true
   slackDestinationId:
     type: String
     required: true
@@ -81,15 +84,36 @@ steps:
     version: '1'
     inputs:
       prompt: |-
-        Perform a focused Production Readiness investigation for service ${{ .workflowInputs.service }} and demo.run_id ${{ .workflowInputs.demoRunId }}.
+        Perform a focused Production Readiness investigation for service ${{ .workflowInputs.service }}.
+
+        ==================================================
+        CURRENT RUN IS THE PRIMARY SCOPE
+        ==================================================
+
+        The investigation scope is the current PRR run identified by demoRunId = ${{ .workflowInputs.demoRunId }}. This demoRunId is the primary correlation key. Do not evaluate the service using an entity-wide time window. Do not use unrelated telemetry from previous or later demoRunIds as evidence for this run.
 
         The deterministic Observability Contract already returned ${{ .workflowInputs.readinessResult }}. That result is authoritative. Do not re-evaluate or override it. Investigate only these failed checks: ${{ .workflowInputs.failedChecks }}.
+
+        Authoritative PRR evidence:
+        ${{ .workflowInputs.readinessEvidence }}
+
+        This evidence was produced by the deterministic Observability Contract check. Treat these current-run failed-check facts as established. Do not contradict or re-evaluate them using telemetry from other runs.
+
+        A missing attribute or broken trace is a verified telemetry symptom, not a verified implementation root cause. Never label an implementation explanation as "Cause" or "Root cause" unless it is directly proven by current-run evidence. Otherwise explicitly state that the implementation-level cause is unknown and describe possibilities only as inference. Do not include code snippets or prescribe a specific header, function, API, agent setting, or code path that was not directly verified.
+
+        For customer.plan, inspect only checkout telemetry where `demo.run_id` equals the current demoRunId. Never use customer.plan coverage from the service as a whole or from another run as evidence for this run.
+
+        For prr-demo-payment trace continuity, first obtain trace.id values from checkout telemetry scoped to the current demoRunId, then check whether those same trace.id values contain prr-demo-payment. Matching transaction counts, throughput, successful HTTP behavior, response time, or zero error rate are not evidence of distributed trace continuity.
+
+        A time window may be used only as an additional query bound. It must never replace filtering by the current demo.run_id or by trace.id values derived from that run. If telemetry does not carry demo.run_id directly, correlate it using trace.id, transactionId, or another identifier derived from current-run telemetry. If it cannot be correlated, state that its relationship to this run cannot be verified; do not substitute telemetry from another run.
+
+        Functional health and Observability readiness are different. A successful Functional Test or payment HTTP call does not prove that checkout and payment share a distributed trace, and must not weaken an authoritative failed check.
 
         Distinguish facts verified from current telemetry, relevant operational context retrieved from Memory, interpretation, and recommendations. Do not assert a specific implementation cause unless it is directly verified. If the cause cannot be verified from telemetry, state that the implementation-level cause is unknown.
 
         This application uses the New Relic Go APM Agent, not OpenTelemetry. Do not recommend OpenTelemetry APIs, SDKs, instrumentation, service.name, span.SetAttribute, Collector, propagator, or TraceContext configuration. Do not add CPU, memory utilization, Golden Metrics, throughput, error rate, Logs, Alerts, SLOs, dashboards, infrastructure, Kubernetes, or unrelated dependencies as readiness requirements.
 
-        Please keep the final investigation concise and focused on the failed checks. Avoid unnecessary entity metadata, account IDs, GUIDs, query windows, exact telemetry counts, and large tables.
+        Please keep the final investigation concise and focused on the failed checks. Avoid unnecessary entity metadata, account IDs, GUIDs, query windows, exact telemetry counts, code examples, and large tables.
       context:
         - description: service
           value: ${{ .workflowInputs.service }}
@@ -99,6 +123,8 @@ steps:
           value: ${{ .workflowInputs.readinessResult }}
         - description: failedChecks
           value: ${{ .workflowInputs.failedChecks }}
+        - description: authoritativeReadinessEvidence
+          value: ${{ .workflowInputs.readinessEvidence }}
         - description: accountId
           value: ${{ .workflowConstants.accountId | tostring }}
       selectors:

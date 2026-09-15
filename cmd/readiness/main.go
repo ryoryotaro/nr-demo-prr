@@ -59,12 +59,23 @@ type checkResult struct {
 	Err    error
 }
 
+type readinessReport struct {
+	Service   string           `json:"service"`
+	DemoRunID string           `json:"demoRunId"`
+	Result    string           `json:"result"`
+	Checks    []readinessCheck `json:"checks"`
+}
+
+type readinessCheck struct {
+	Name     string `json:"name"`
+	Status   string `json:"status"`
+	Evidence string `json:"evidence"`
+}
+
 func main() {
-	contractPath := "observability-contract.yaml"
-	if len(os.Args) == 2 {
-		contractPath = os.Args[1]
-	} else if len(os.Args) > 2 {
-		printErrorAndExit("usage: readiness [contract path]")
+	contractPath, jsonOutputPath, err := parseArguments(os.Args[1:])
+	if err != nil {
+		printErrorAndExit(err.Error())
 	}
 
 	c, err := loadContract(contractPath)
@@ -102,16 +113,84 @@ func main() {
 	hasFailure = hasFailure || dependencyFailure
 	hasError = hasError || dependencyError
 
+	result := "READY"
+	exitCode := 0
 	switch {
 	case hasError:
-		fmt.Println("RESULT: ERROR")
-		os.Exit(2)
+		result = "ERROR"
+		exitCode = 2
 	case hasFailure:
-		fmt.Println("RESULT: NOT READY")
-		os.Exit(1)
-	default:
-		fmt.Println("RESULT: READY")
+		result = "NOT READY"
+		exitCode = 1
 	}
+
+	if jsonOutputPath != "" {
+		report := buildReadinessReport(c.Service, demoRunID, result, attributeResults, dependencyResults)
+		if err := writeReadinessReport(jsonOutputPath, report); err != nil {
+			fmt.Printf("[ERROR] write readiness JSON: %v\n\nRESULT: ERROR\n", err)
+			os.Exit(2)
+		}
+	}
+
+	fmt.Printf("RESULT: %s\n", result)
+	os.Exit(exitCode)
+}
+
+func parseArguments(arguments []string) (contractPath, jsonOutputPath string, err error) {
+	contractPath = "observability-contract.yaml"
+	for len(arguments) > 0 {
+		switch arguments[0] {
+		case "--json-output":
+			if len(arguments) < 2 || arguments[1] == "" {
+				return "", "", errors.New("--json-output requires a path")
+			}
+			jsonOutputPath = arguments[1]
+			arguments = arguments[2:]
+		default:
+			if contractPath != "observability-contract.yaml" {
+				return "", "", errors.New("usage: readiness [--json-output path] [contract path]")
+			}
+			contractPath = arguments[0]
+			arguments = arguments[1:]
+		}
+	}
+	return contractPath, jsonOutputPath, nil
+}
+
+func buildReadinessReport(service, demoRunID, result string, resultGroups ...[]checkResult) readinessReport {
+	report := readinessReport{Service: service, DemoRunID: demoRunID, Result: result}
+	for _, results := range resultGroups {
+		for _, check := range results {
+			status := "PASS"
+			evidence := "Observed for demo.run_id=" + demoRunID
+			if check.Err != nil {
+				status = "ERROR"
+				evidence = "Check could not be completed for demo.run_id=" + demoRunID
+			} else if !check.Passed {
+				status = "FAIL"
+				evidence = "NOT OBSERVED for demo.run_id=" + demoRunID
+			}
+			if strings.HasPrefix(check.Name, "prr-demo-") {
+				switch status {
+				case "PASS":
+					evidence = "Shared trace.id observed for demo.run_id=" + demoRunID
+				case "FAIL":
+					evidence = "NO shared trace.id for demo.run_id=" + demoRunID
+				}
+			}
+			report.Checks = append(report.Checks, readinessCheck{Name: check.Name, Status: status, Evidence: evidence})
+		}
+	}
+	return report
+}
+
+func writeReadinessReport(path string, report readinessReport) error {
+	contents, err := json.MarshalIndent(report, "", "  ")
+	if err != nil {
+		return err
+	}
+	contents = append(contents, '\n')
+	return os.WriteFile(filepath.Clean(path), contents, 0o600)
 }
 
 func loadContract(path string) (contract, error) {
