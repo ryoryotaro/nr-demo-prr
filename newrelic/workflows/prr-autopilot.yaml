@@ -81,20 +81,15 @@ steps:
     version: '1'
     inputs:
       prompt: |-
-        OUTPUT CONTRACT — HIGHEST PRIORITY: Return only one valid JSON object. Do not wrap it in a code fence and do not add text before or after it. Use exactly these four string fields and no others:
+        Perform a focused Production Readiness investigation for service ${{ .workflowInputs.service }} and demo.run_id ${{ .workflowInputs.demoRunId }}.
 
-        {"telemetryFacts":"...","operationalContext":"...","interpretation":"...","recommendation":"..."}
+        The deterministic Observability Contract already returned ${{ .workflowInputs.readinessResult }}. That result is authoritative. Do not re-evaluate or override it. Investigate only these failed checks: ${{ .workflowInputs.failedChecks }}.
 
-        Write each value in concise Japanese, approximately 150 characters or fewer. Keep all four values under 600 characters total. Do not put Markdown, headings, tables, bullets, HTML, links, nested JSON, arrays, Entity GUID, Account ID, entity metadata, agent or language version, NRQL, query window, UTC time range, exact timestamps, exact telemetry counts, or a PRR result table in any value.
+        Distinguish facts verified from current telemetry, relevant operational context retrieved from Memory, interpretation, and recommendations. Do not assert a specific implementation cause unless it is directly verified. If the cause cannot be verified from telemetry, state that the implementation-level cause is unknown.
 
-        Review only failedChecks ${{ .workflowInputs.failedChecks }} for service ${{ .workflowInputs.service }} and demo.run_id ${{ .workflowInputs.demoRunId }}. The deterministic Observability Contract already returned ${{ .workflowInputs.readinessResult }} and is authoritative. Do not re-evaluate, override, or repeat that decision.
+        This application uses the New Relic Go APM Agent, not OpenTelemetry. Do not recommend OpenTelemetry APIs, SDKs, instrumentation, service.name, span.SetAttribute, Collector, propagator, or TraceContext configuration. Do not add CPU, memory utilization, Golden Metrics, throughput, error rate, Logs, Alerts, SLOs, dashboards, infrastructure, Kubernetes, or unrelated dependencies as readiness requirements.
 
-        telemetryFacts: include only facts directly verified in telemetry for this run and failedChecks. Do not infer causes.
-        operationalContext: include only operational meaning retrieved from relevant Memory. Do not invent rules. If none, use "No relevant Memory was found."
-        interpretation: combine verified facts and Memory only to explain reduced investigation or decision capability. Mark uncertainty and do not assert an unverified root cause.
-        recommendation: give only minimal checks or remediation directly related to failedChecks.
-
-        This application uses the New Relic Go APM Agent, not OpenTelemetry. Never recommend OpenTelemetry APIs, SDKs, instrumentation, service.name, span.SetAttribute, Collector, propagator, or TraceContext configuration. Do not add CPU, memory utilization, Golden Metrics, throughput, error rate, Logs, Alerts, SLOs, dashboards, infrastructure, Kubernetes, or unrelated dependencies as requirements.
+        Please keep the final investigation concise and focused on the failed checks. Avoid unnecessary entity metadata, account IDs, GUIDs, query windows, exact telemetry counts, and large tables.
       context:
         - description: service
           value: ${{ .workflowInputs.service }}
@@ -118,28 +113,8 @@ steps:
     type: switch
     switch:
       - condition: ${{ (.steps.runAutopilot.outputs.response // "") != "" }}
-        next: normalizeAutopilotReview
-    next: sendAutopilotFallback
-
-  - name: normalizeAutopilotReview
-    type: assign
-    inputs:
-      json: '${{ (.steps.runAutopilot.outputs.response // "") as $r | if ($r|type)=="object" and (($r.telemetryFacts?|type)=="string") then $r elif ($r|type)=="string" then ($r | try fromjson catch null) elif ($r|type)=="array" then (($r[0].text // "") | try fromjson catch null) elif ($r|type)=="object" and ($r.card.body|type)=="array" then ([ $r.card.body[] | if .type=="Text" then (.value // "") else "" end ] | join("") | try fromjson catch null) elif ($r|type)=="object" and ($r.text|type)=="string" then ($r.text | try fromjson catch null) else null end }}'
-    next: formatAutopilotReview
-
-  - name: formatAutopilotReview
-    type: assign
-    inputs:
-      valid: '${{ .steps.normalizeAutopilotReview.outputs.json as $j | ($j|type)=="object" and ($j.telemetryFacts|type)=="string" and ($j.telemetryFacts|length)>0 and ($j.operationalContext|type)=="string" and ($j.operationalContext|length)>0 and ($j.interpretation|type)=="string" and ($j.interpretation|length)>0 and ($j.recommendation|type)=="string" and ($j.recommendation|length)>0 }}'
-      text: '${{ .steps.normalizeAutopilotReview.outputs.json as $j | if ($j|type)=="object" and ($j.telemetryFacts|type)=="string" and ($j.operationalContext|type)=="string" and ($j.interpretation|type)=="string" and ($j.recommendation|type)=="string" then (def clean: gsub("[\\r\\n]+"; " ") | gsub("[*#`]"; "") | .[0:150]; "*Telemetry facts*\n• \($j.telemetryFacts|clean)\n\n*Operational context*\n• \($j.operationalContext|clean)\n\n*Interpretation*\n• \($j.interpretation|clean)\n\n*Recommendation*\n• \($j.recommendation|clean)") else "" end as $text | if ($text|length)>850 then $text[0:850] + "\n...\n[Autopilot review truncated for Slack]" else $text end }}'
-    next: checkFormattedReview
-
-  - name: checkFormattedReview
-    type: switch
-    switch:
-      - condition: ${{ .steps.formatAutopilotReview.outputs.valid == true and (.steps.formatAutopilotReview.outputs.text // "") != "" }}
         next: sendNotReadyReview
-    next: sendAutopilotFormatFallback
+    next: sendAutopilotFallback
 
   - name: sendNotReadyReview
     type: action
@@ -148,22 +123,7 @@ steps:
     inputs:
       destinationId: ${{ .workflowInputs.slackDestinationId }}
       channel: ${{ .workflowInputs.slackChannel }}
-      text: |-
-        ❌ *Production Readiness Review: NOT READY*
-
-        *Service:* ${{ .workflowInputs.service }}
-        *Run ID:* ${{ .workflowInputs.demoRunId }}
-
-        *Failed checks:*
-        ${{ .steps.formatFailedChecks.outputs.text }}
-
-        The deterministic Observability Contract returned NOT READY.
-
-        ────────────────────
-        *Autopilot Review*
-        ────────────────────
-
-        ${{ .steps.formatAutopilotReview.outputs.text }}
+      blocks: '${{ (.steps.runAutopilot.outputs.response // "") as $raw | (if ($raw|type)=="string" then ($raw | try fromjson catch $raw) else $raw end) as $r | (if ($r|type)=="object" and ($r.card.body|type)=="array" then [ $r.card.body[] | select(.type=="Text" and (.value|type)=="string") | .value ] elif ($r|type)=="array" then [ $r[] | if (.type=="Text" and (.value|type)=="string") then .value elif (.text|type)=="string" then .text else empty end ] elif ($r|type)=="object" and ($r.text|type)=="string" then [ $r.text ] elif ($r|type)=="string" then [ $r ] else [ $raw|tostring ] end) as $cards | [{"type":"section","text":{"type":"mrkdwn","text":"❌ *Production Readiness Review: NOT READY*\n\n*Service:* \(.workflowInputs.service)\n*Run ID:* \(.workflowInputs.demoRunId)\n\n*Failed checks:*\n\(.steps.formatFailedChecks.outputs.text)\n\nThe deterministic Observability Contract returned NOT READY."}},{"type":"divider"},{"type":"section","text":{"type":"mrkdwn","text":"*Autopilot Investigation*"}},{"type":"divider"}] + ([ $cards[] | [range(0; length; 2900) as $i | .[$i:$i+2900]][] ] | map({"type":"section","text":{"type":"mrkdwn","text":.}}) | reduce .[] as $block ([]; if length==0 then [$block] else . + [{"type":"divider"},$block] end)) }}'
     next: end
 
   - name: sendAutopilotFallback
@@ -183,26 +143,6 @@ steps:
         ${{ .steps.formatFailedChecks.outputs.text }}
 
         Autopilot review could not be completed.
-        The deterministic PRR result remains NOT READY.
-    next: end
-
-  - name: sendAutopilotFormatFallback
-    type: action
-    action: newrelic.notification.sendSlack
-    version: 1
-    inputs:
-      destinationId: ${{ .workflowInputs.slackDestinationId }}
-      channel: ${{ .workflowInputs.slackChannel }}
-      text: |-
-        ❌ *Production Readiness Review: NOT READY*
-
-        *Service:* ${{ .workflowInputs.service }}
-        *Run ID:* ${{ .workflowInputs.demoRunId }}
-
-        *Failed checks:*
-        ${{ .steps.formatFailedChecks.outputs.text }}
-
-        Autopilot review could not be formatted.
         The deterministic PRR result remains NOT READY.
     next: end
 
