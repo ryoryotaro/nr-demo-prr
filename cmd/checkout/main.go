@@ -45,9 +45,6 @@ func main() {
 	defer app.Shutdown(5 * time.Second)
 
 	transport := http.DefaultTransport
-	if observabilityMode != "incomplete" && observabilityMode != "regression" {
-		transport = newrelic.NewRoundTripper(nil)
-	}
 	client := &http.Client{Timeout: 3 * time.Second, Transport: transport}
 
 	mux := http.NewServeMux()
@@ -77,9 +74,6 @@ func checkoutHandler(client *http.Client, paymentURL, observabilityMode, demoRun
 		txn := newrelic.FromContext(r.Context())
 		txn.AddAttribute("tenant.id", request.TenantID)
 		txn.AddAttribute("demo.run_id", demoRunID)
-		if observabilityMode != "incomplete" && observabilityMode != "regression" {
-			txn.AddAttribute("customer.plan", request.CustomerPlan)
-		}
 
 		body, err := json.Marshal(request)
 		if err != nil {
