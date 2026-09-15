@@ -99,8 +99,8 @@ func parseOptions() (options, error) {
 	if !valuePattern.MatchString(opts.DemoRunID) {
 		return opts, errors.New("demo-run-id is required and contains unsupported characters")
 	}
-	if opts.Mode != "complete" && opts.Mode != "incomplete" {
-		return opts, errors.New("mode must be complete or incomplete")
+	if opts.Mode != "complete" && opts.Mode != "incomplete" && opts.Mode != "regression" {
+		return opts, errors.New("mode must be complete, incomplete, or regression")
 	}
 	if opts.DeepLink != "" {
 		parsed, err := url.ParseRequestURI(opts.DeepLink)

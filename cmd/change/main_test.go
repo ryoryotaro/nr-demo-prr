@@ -37,7 +37,7 @@ func TestCreateEvent(t *testing.T) {
 
 	c := &client{endpoint: "https://example.invalid/graphql", userKey: "secret", accountID: 12345, http: httpClient}
 	commit := "abcdef1234567890abcdef1234567890abcdef12"
-	result, err := c.createEvent(options{Commit: commit, DemoRunID: "run-1", Mode: "incomplete", DeepLink: "https://github.com/example/repo/pull/1", User: "demo"})
+	result, err := c.createEvent(options{Commit: commit, DemoRunID: "run-1", Mode: "regression", DeepLink: "https://github.com/example/repo/pull/1", User: "demo"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -50,7 +50,7 @@ func TestCreateEvent(t *testing.T) {
 		t.Fatalf("entity search = %q", search)
 	}
 	encoded, _ := json.Marshal(event)
-	for _, want := range []string{commit, `"demoRunId":"run-1"`, `"observabilityMode":"incomplete"`} {
+	for _, want := range []string{commit, `"demoRunId":"run-1"`, `"observabilityMode":"regression"`} {
 		if !strings.Contains(string(encoded), want) {
 			t.Errorf("event does not contain %q: %s", want, encoded)
 		}

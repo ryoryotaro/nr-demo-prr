@@ -705,3 +705,126 @@ New Relic UIからGitHub Integrationをread-onlyとして接続します。PAT�
 PRに変更が存在することはVerified change contextですが、その変更がTelemetry regressionを起こしたことは、追加証拠がなければInterpretationです。Autopilotには時間的な近接だけで原因を断定させません。READY / NOT READYは引き続きContractとReadiness Checkだけが決めます。
 
 GitHub Integrationの接続、commit SHAからのPR取得、回答へのPR title・description・changed filesの反映はNew Relic UIでの **MANUAL VERIFICATION REQUIRED** です。
+
+## Phase 6.5: Git履歴で再現するObservability Regression
+
+Phase 6.5では、GitHub Pull RequestとAutopilot GitHub Contextのデモ専用に`regression`モードを追加します。3モードの役割は次のとおりです。
+
+| モード | Functional Test | Readiness | 用途 |
+|---|---|---|---|
+| `complete` | PASS | READY | 正常なTelemetryのbaseline |
+| `incomplete` | PASS | NOT READY | Phase 4/5のContractとAutopilot説明用 |
+| `regression` | PASS | NOT READY | Phase 6のChange TrackingとGitHub PR Context用 |
+
+`incomplete`と`regression`のTelemetry結果は同じです。ただし`regression`は、正常なmainからObservability実装を壊したPull Requestのcommit SHAをChange Trackingへ記録し、Autopilotがそのコード変更を調査コンテキストとして利用するために存在します。
+
+### regressionで変わるObservability
+
+checkoutの機能処理とpaymentへのHTTPリクエストは変えません。`regression`では次の2点だけを欠損させます。
+
+- `tenant.id`と`demo.run_id`は記録するが、`customer.plan`をcheckout Transactionへ追加しない。
+- 通常のHTTP transportでpaymentを呼び出し、New Relicのinstrumented HTTP transportを利用しない。paymentはHTTP 200を返し、自身のAPM Transactionも継続するが、checkoutとのDistributed Trace continuityは失われる。
+
+この変更は`cmd/checkout/main.go`の属性追加条件とHTTP transport選択条件に明示されるため、GitHub PRのdiffから両方を確認できます。
+
+### baselineとregression branch
+
+`main`の`Baseline: working PRR demo through Phase 6` commitは、complete/incomplete、Contract、Readiness Check、Autopilot、Memory、Change Tracking、GitHub Context対応までが動く基準点です。
+
+`demo/observability-regression`の`Demo: introduce observability regression` commitは、そのbaselineにregressionモードだけを追加します。GitHubではこのbranchからmainへのPull Requestを作成します。
+
+### 推奨Pull Request
+
+Title:
+
+```text
+Demo: introduce observability regression
+```
+
+Description:
+
+```text
+This change simulates an observability regression for the Production Readiness Review demo.
+
+Application functionality remains healthy, but:
+
+- customer.plan is no longer recorded in checkout telemetry
+- distributed trace continuity between checkout and payment is intentionally broken
+
+The deterministic Observability Contract is expected to return NOT READY while functional tests continue to pass.
+```
+
+### GitHubでの手動操作とデモ
+
+1. GitHubで空のrepositoryを作成し、ローカルmainをpushする。
+2. `demo/observability-regression`をpushする。
+3. `demo/observability-regression`からmainへのPull Requestを、上記titleとdescriptionで作成する。
+4. PR diffで`customer.plan`とinstrumented transportの条件変更を確認してmergeする。
+5. merge commitをローカルへ取得し、そのcommitをcheckoutする。
+6. `./scripts/run-change-demo.sh regression`を実行する。
+7. Change Tracking eventのcommit SHAと`demoRunId`を確認する。
+8. 表示された入力でAutopilot Workflowを実行する。
+
+Autopilot GitHub IntegrationはChange Trackingのcommit SHAから関連PRを探し、failed checksに関係する変更情報を利用します。ただし、PRとTelemetry regressionが時間的に近いことだけでは因果関係を証明できません。PRのdiffはVerified change contextであり、それが欠損原因であるという説明は、追加の証拠がない限りInterpretationとして扱います。
+
+## Phase 6.6: PRR結果とAutopilotレビューのSlack通知
+
+Workflow AutomationのTRACEには詳細なstep情報が残りますが、開発者が日常的に確認する場所としてはSlackの方が適しています。Phase 6.6では、判定と調査の責務を変えず、Workflow AutomationがPRR結果と必要なAutopilotレビューをSlackへ送ります。
+
+```text
+Observability Contract + Readiness Check
+              │
+              ├── READY ────────────────► Slack
+              │                            Autopilotなし
+              │
+              ├── NOT READY ─► Autopilot ─► Slack
+              │                調査のみ      正式結果 + review
+              │
+              └── unexpected ────────────► Slack ERROR
+```
+
+READY / NOT READYの唯一のSource of Truthは、引き続き`observability-contract.yaml`と`cmd/readiness`です。Workflowの`switch`が入力文字列を決定論的に分類します。AutopilotはNOT READYを決定せず、NOT READY時に`failedChecks`だけを調査します。Slack通知を行う主体もAutopilotやExternal MCPではなくWorkflow Automationです。
+
+### Workflowの3経路
+
+- `READY`: Autopilotを実行せず、全Contract checkがPASSしたことをSlackへ送る。
+- `NOT READY`: 最初に正式結果とfailed checksをSlackへ送り、Autopilotを実行する。回答取得後、正式結果とreviewを最終通知する。
+- その他: Autopilotを実行せず、予期しないreadiness値をSlack ERRORとして送る。
+
+Autopilot stepは`ignoreErrors: true`です。Action失敗または`.response.finalAnswer`が空の場合はFallback経路へ進みます。Fallback本文は`readinessResult`やAutopilot出力から判定を再構築せず、Workflow Inputのservice、run ID、failed checksと、正式結果がNOT READYのままであることを直接通知します。したがってAutopilot failureとPRR結果は独立しています。
+
+finalAnswerは公式Workflow例と同じ考え方で、String、JSON String、Object、`card.body`を小さな`assign`式でSlack textへ変換します。Slack Block Kitは使用せず、`newrelic.notification.sendSlack` version 1の`text`だけを使います。
+
+### Slack Destinationの手動設定
+
+Slack接続はRepositoryから作成しません。New Relic UIで次を行います。
+
+1. **All Capabilities > Alerts > Destinations**を開く。
+2. Slack Destinationを追加し、対象Workspaceを認証する。
+3. 通知先Channelへのアクセスを許可する。
+4. 作成されたDestinationのUUIDを控える。
+5. Channel名を控える。
+
+ローカルの`.env`へ次を設定すると、`run-change-demo.sh`の最後にWorkflow入力として表示されます。
+
+```sh
+SLACK_DESTINATION_ID=<New Relic Slack Destination UUID>
+SLACK_CHANNEL=<Slack channel name>
+```
+
+`slackDestinationId`はWorkflow側でもUUID形式を検証します。Slack Bot Token、Webhook URL、Workspace credentialはRepository、`.env.example`、Workflow Input、Autopilot contextへ保存しません。認証情報はNew Relic側で管理されるDestinationだけが保持します。
+
+### Workflowの手動実行
+
+`./scripts/run-change-demo.sh complete|incomplete|regression`が表示する値をWorkflow Automationへ入力します。
+
+```text
+service: prr-demo-checkout
+demoRunId: <run-change-demo.shのRun ID>
+readinessResult: READY または NOT READY
+failedChecks: none または customer.plan, prr-demo-payment
+slackDestinationId: <Destination UUID>
+slackChannel: <Channel name>
+```
+
+READYではSlack通知が1件送られ、Autopilot stepは実行されません。NOT READYでは開始通知の後、成功時はAutopilot Reviewを含む最終通知、失敗時は正式なNOT READY結果を保持したFallback通知が送られます。Slack Destination未設定時の実送信は手動確認が必要です。

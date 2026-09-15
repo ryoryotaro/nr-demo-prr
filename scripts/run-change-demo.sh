@@ -4,9 +4,16 @@ set -eu
 
 repo_dir="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
 mode="${1:-}"
-if [ "$mode" != "complete" ] && [ "$mode" != "incomplete" ]; then
-  printf 'Usage: %s complete|incomplete\n' "$0" >&2
+if [ "$mode" != "complete" ] && [ "$mode" != "incomplete" ] && [ "$mode" != "regression" ]; then
+  printf 'Usage: %s complete|incomplete|regression\n' "$0" >&2
   exit 2
+fi
+
+if [ -f "$repo_dir/.env" ]; then
+  set -a
+  # shellcheck disable=SC1091
+  . "$repo_dir/.env"
+  set +a
 fi
 
 demo_run_id="${DEMO_RUN_ID:-$(date -u '+%Y%m%d-%H%M%S')-$$}"
@@ -44,3 +51,5 @@ printf 'service:\nprr-demo-checkout\n\n'
 printf 'demoRunId:\n%s\n\n' "$DEMO_RUN_ID"
 printf 'readinessResult:\n%s\n\n' "$readiness_result"
 printf 'failedChecks:\n%s\n' "$failed_checks"
+printf '\nslackDestinationId:\n%s\n' "${SLACK_DESTINATION_ID:-<set in .env>}"
+printf '\nslackChannel:\n%s\n' "${SLACK_CHANNEL:-<set in .env>}"

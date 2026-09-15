@@ -20,8 +20,8 @@ if [ -z "$DEMO_RUN_ID" ]; then
   printf '[ERROR] DEMO_RUN_ID is required.\n' >&2
   exit 2
 fi
-if [ "$OBSERVABILITY_MODE" != "complete" ] && [ "$OBSERVABILITY_MODE" != "incomplete" ]; then
-  printf '[ERROR] OBSERVABILITY_MODE must be complete or incomplete.\n' >&2
+if [ "$OBSERVABILITY_MODE" != "complete" ] && [ "$OBSERVABILITY_MODE" != "incomplete" ] && [ "$OBSERVABILITY_MODE" != "regression" ]; then
+  printf '[ERROR] OBSERVABILITY_MODE must be complete, incomplete, or regression.\n' >&2
   exit 2
 fi
 

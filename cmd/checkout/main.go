@@ -34,8 +34,8 @@ func main() {
 	paymentURL := envOrDefault("PAYMENT_URL", "http://localhost:8081/pay")
 	observabilityMode := envOrDefault("OBSERVABILITY_MODE", "complete")
 	demoRunID := os.Getenv("DEMO_RUN_ID")
-	if observabilityMode != "complete" && observabilityMode != "incomplete" {
-		log.Fatalf("invalid OBSERVABILITY_MODE %q: use complete or incomplete", observabilityMode)
+	if observabilityMode != "complete" && observabilityMode != "incomplete" && observabilityMode != "regression" {
+		log.Fatalf("invalid OBSERVABILITY_MODE %q: use complete, incomplete, or regression", observabilityMode)
 	}
 
 	app, err := newrelic.NewApplication(newrelic.ConfigFromEnvironment())
@@ -45,7 +45,7 @@ func main() {
 	defer app.Shutdown(5 * time.Second)
 
 	transport := http.DefaultTransport
-	if observabilityMode == "complete" {
+	if observabilityMode != "incomplete" && observabilityMode != "regression" {
 		transport = newrelic.NewRoundTripper(nil)
 	}
 	client := &http.Client{Timeout: 3 * time.Second, Transport: transport}
@@ -77,7 +77,7 @@ func checkoutHandler(client *http.Client, paymentURL, observabilityMode, demoRun
 		txn := newrelic.FromContext(r.Context())
 		txn.AddAttribute("tenant.id", request.TenantID)
 		txn.AddAttribute("demo.run_id", demoRunID)
-		if observabilityMode == "complete" {
+		if observabilityMode != "incomplete" && observabilityMode != "regression" {
 			txn.AddAttribute("customer.plan", request.CustomerPlan)
 		}
 
