@@ -705,3 +705,64 @@ New Relic UIからGitHub Integrationをread-onlyとして接続します。PAT�
 PRに変更が存在することはVerified change contextですが、その変更がTelemetry regressionを起こしたことは、追加証拠がなければInterpretationです。Autopilotには時間的な近接だけで原因を断定させません。READY / NOT READYは引き続きContractとReadiness Checkだけが決めます。
 
 GitHub Integrationの接続、commit SHAからのPR取得、回答へのPR title・description・changed filesの反映はNew Relic UIでの **MANUAL VERIFICATION REQUIRED** です。
+
+## Phase 6.5: Git履歴で再現するObservability Regression
+
+Phase 6.5では、GitHub Pull RequestとAutopilot GitHub Contextのデモ専用に`regression`モードを追加します。3モードの役割は次のとおりです。
+
+| モード | Functional Test | Readiness | 用途 |
+|---|---|---|---|
+| `complete` | PASS | READY | 正常なTelemetryのbaseline |
+| `incomplete` | PASS | NOT READY | Phase 4/5のContractとAutopilot説明用 |
+| `regression` | PASS | NOT READY | Phase 6のChange TrackingとGitHub PR Context用 |
+
+`incomplete`と`regression`のTelemetry結果は同じです。ただし`regression`は、正常なmainからObservability実装を壊したPull Requestのcommit SHAをChange Trackingへ記録し、Autopilotがそのコード変更を調査コンテキストとして利用するために存在します。
+
+### regressionで変わるObservability
+
+checkoutの機能処理とpaymentへのHTTPリクエストは変えません。`regression`では次の2点だけを欠損させます。
+
+- `tenant.id`と`demo.run_id`は記録するが、`customer.plan`をcheckout Transactionへ追加しない。
+- 通常のHTTP transportでpaymentを呼び出し、New Relicのinstrumented HTTP transportを利用しない。paymentはHTTP 200を返し、自身のAPM Transactionも継続するが、checkoutとのDistributed Trace continuityは失われる。
+
+この変更は`cmd/checkout/main.go`の属性追加条件とHTTP transport選択条件に明示されるため、GitHub PRのdiffから両方を確認できます。
+
+### baselineとregression branch
+
+`main`の`Baseline: working PRR demo through Phase 6` commitは、complete/incomplete、Contract、Readiness Check、Autopilot、Memory、Change Tracking、GitHub Context対応までが動く基準点です。
+
+`demo/observability-regression`の`Demo: introduce observability regression` commitは、そのbaselineにregressionモードだけを追加します。GitHubではこのbranchからmainへのPull Requestを作成します。
+
+### 推奨Pull Request
+
+Title:
+
+```text
+Demo: introduce observability regression
+```
+
+Description:
+
+```text
+This change simulates an observability regression for the Production Readiness Review demo.
+
+Application functionality remains healthy, but:
+
+- customer.plan is no longer recorded in checkout telemetry
+- distributed trace continuity between checkout and payment is intentionally broken
+
+The deterministic Observability Contract is expected to return NOT READY while functional tests continue to pass.
+```
+
+### GitHubでの手動操作とデモ
+
+1. GitHubで空のrepositoryを作成し、ローカルmainをpushする。
+2. `demo/observability-regression`をpushする。
+3. `demo/observability-regression`からmainへのPull Requestを、上記titleとdescriptionで作成する。
+4. PR diffで`customer.plan`とinstrumented transportの条件変更を確認してmergeする。
+5. merge commitをローカルへ取得し、そのcommitをcheckoutする。
+6. `./scripts/run-change-demo.sh regression`を実行する。
+7. Change Tracking eventのcommit SHAと`demoRunId`を確認する。
+8. 表示された入力でAutopilot Workflowを実行する。
+
+Autopilot GitHub IntegrationはChange Trackingのcommit SHAから関連PRを探し、failed checksに関係する変更情報を利用します。ただし、PRとTelemetry regressionが時間的に近いことだけでは因果関係を証明できません。PRのdiffはVerified change contextであり、それが欠損原因であるという説明は、追加の証拠がない限りInterpretationとして扱います。

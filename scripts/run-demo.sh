@@ -5,8 +5,8 @@ set -eu
 repo_dir="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
 mode="${1:-}"
 
-if [ "$mode" != "complete" ] && [ "$mode" != "incomplete" ]; then
-  printf 'Usage: %s complete|incomplete\n' "$0" >&2
+if [ "$mode" != "complete" ] && [ "$mode" != "incomplete" ] && [ "$mode" != "regression" ]; then
+  printf 'Usage: %s complete|incomplete|regression\n' "$0" >&2
   exit 2
 fi
 
@@ -65,7 +65,7 @@ while [ "$attempt" -le "$max_attempts" ]; do
   if [ "$mode" = "complete" ] && [ "$readiness_status" -eq 0 ]; then
     break
   fi
-  if [ "$mode" = "incomplete" ] && [ "$readiness_status" -eq 1 ] &&
+  if { [ "$mode" = "incomplete" ] || [ "$mode" = "regression" ]; } && [ "$readiness_status" -eq 1 ] &&
      printf '%s' "$readiness_output" | grep -q '\[PASS\] tenant.id' &&
      printf '%s' "$readiness_output" | grep -q '\[FAIL\] customer.plan' &&
      printf '%s' "$readiness_output" | grep -q '\[FAIL\] prr-demo-payment'; then
@@ -90,7 +90,7 @@ if [ "$mode" = "complete" ] && [ "$readiness_status" -eq 0 ]; then
   exit 0
 fi
 
-if [ "$mode" = "incomplete" ] && [ "$readiness_status" -eq 1 ] &&
+if { [ "$mode" = "incomplete" ] || [ "$mode" = "regression" ]; } && [ "$readiness_status" -eq 1 ] &&
    printf '%s' "$readiness_output" | grep -q '\[PASS\] tenant.id' &&
    printf '%s' "$readiness_output" | grep -q '\[FAIL\] customer.plan' &&
    printf '%s' "$readiness_output" | grep -q '\[FAIL\] prr-demo-payment'; then
