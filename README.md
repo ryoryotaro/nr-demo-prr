@@ -793,7 +793,7 @@ READY / NOT READYの唯一のSource of Truthは、引き続き`observability-con
 
 Autopilot stepは`ignoreErrors: true`です。Action失敗または`.response.finalAnswer`が空の場合はFallback経路へ進みます。Fallback本文は`readinessResult`やAutopilot出力から判定を再構築せず、Workflow Inputのservice、run ID、failed checksと、正式結果がNOT READYのままであることを直接通知します。したがってAutopilot failureとPRR結果は独立しています。
 
-finalAnswerは公式Workflow例と同じ考え方で、String、JSON String、Object、`card.body`を小さな`assign`式でSlack textへ変換します。Slack Block Kitは使用せず、`newrelic.notification.sendSlack` version 1の`text`だけを使います。
+finalAnswerは公式Workflow例と同じ考え方で、String、Object、`card.body`、複数Text cardを受け入れます。長い本文を1つのStateへjoinせず、Workflow Automationが各Text cardをSlackの`section`へ直接変換し、`divider`で区切ります。
 
 ### Slack Destinationの手動設定
 
@@ -814,9 +814,9 @@ SLACK_CHANNEL=<Slack channel name>
 
 `slackDestinationId`はWorkflow側でもUUID形式を検証します。Slack Bot Token、Webhook URL、Workspace credentialはRepository、`.env.example`、Workflow Input、Autopilot contextへ保存しません。認証情報はNew Relic側で管理されるDestinationだけが保持します。
 
-### Workflowの手動実行
+### Workflowの実行
 
-`./scripts/run-change-demo.sh complete|incomplete|regression`が表示する値をWorkflow Automationへ入力します。
+`./scripts/run-change-demo.sh complete|incomplete|regression`は、Readiness Check後に次の値でWorkflow Automationを開始します。値はデモ出力にも表示されるため、New Relic UIで同じ入力を使った手動再実行も可能です。
 
 ```text
 service: prr-demo-checkout
@@ -827,4 +827,71 @@ slackDestinationId: <Destination UUID>
 slackChannel: <Channel name>
 ```
 
-READYではSlack通知が1件送られ、Autopilot stepは実行されません。NOT READYでは開始通知の後、成功時はAutopilot Reviewを含む最終通知、失敗時は正式なNOT READY結果を保持したFallback通知が送られます。Slack Destination未設定時の実送信は手動確認が必要です。
+Start APIがRun IDを返すと`Workflow Automation started`を表示して終了し、Workflow完了やSlack到着はpollしません。READYではSlack通知が1件送られ、Autopilot stepは実行されません。NOT READYでは開始通知の後、成功時はAutopilot Investigationを含む最終通知、失敗時は正式なNOT READY結果を保持したFallback通知が送られます。
+
+## Phase 7: GitHub ActionsからPRRデモを実行する
+
+Phase 7では、ローカルで動作しているChange Tracking、Functional Test、Readiness Check、Workflow Automation、Slack通知を、GitHub Actionsの手動実行から再現します。Pull Requestやpushでは自動起動せず、Actions画面の`workflow_dispatch`だけを使用します。
+
+```text
+Developer / Demo Operator
+        │
+        ▼
+GitHub Actions: workflow_dispatch
+        │
+        ├── complete
+        └── regression
+              │
+              ▼
+        Docker Compose
+              │
+              ▼
+        Functional Test
+              │
+              ▼
+        New Relic Telemetry
+              │
+              ▼
+        Observability Contract
+              │
+              ├── READY ───────────────► Workflow Automation ─► Slack
+              └── NOT READY ───────────► Workflow Automation ─► Autopilot ─► Slack
+```
+
+### GitHub Repositoryの設定
+
+GitHubで対象Repositoryの **Settings > Secrets and variables > Actions** を開き、次を設定します。
+
+Repository Secrets:
+
+- `NEW_RELIC_LICENSE_KEY`: Go APM AgentがTelemetryを送信するLicense Key
+- `NEW_RELIC_USER_KEY`: Change Tracking、Readiness、Workflow Startに使うUser Key
+- `NEW_RELIC_ACCOUNT_ID`: 対象New Relic Account ID
+
+Repository Variables:
+
+- `SLACK_DESTINATION_ID`: New Relicに作成済みのSlack Destination UUID
+- `SLACK_CHANNEL`: 通知先Slack Channel名
+
+Slack Destination IDとChannel名は接続credentialではないためVariablesを使用します。Slack Bot TokenやWebhook URLはGitHubへ登録しません。`NEW_RELIC_NERDGRAPH_ENDPOINT`はworkflow内で`https://api.newrelic.com/graphql`を設定しています。別regionを使う場合はworkflowの非secret設定値を環境に合わせて変更します。
+
+### 手動実行
+
+1. GitHubの **Actions** を開く。
+2. **Production Readiness Review Demo**を選ぶ。
+3. **Run workflow**を押す。
+4. `mode`で`complete`または`regression`を選ぶ。
+5. 実行を開始し、`Run Production Readiness Review demo`まで成功することを確認する。
+6. Slackで正式なPRR結果を確認する。`regression`では開始通知に続いてAutopilot Investigationが届く。
+
+Workflowは`actions/checkout`で取得したHEADと`GITHUB_SHA`が一致することを確認します。`record-change.sh`はその同じHEADから完全commit SHAを取得するため、Change Tracking EventはGitHub Actionsが実際に実行したcommitを指します。Goは`actions/setup-go`の`go-version-file: go.mod`で、このRepositoryのGo versionを使用します。
+
+`run-change-demo.sh`はReadinessが期待どおり確定した後、`workflowAutomationStartWorkflowRun`を呼びます。GitHub ActionsはWorkflow Automationが`STARTED`になれば終了し、AutopilotやSlack到着をpollしません。
+
+### NOT READYとERRORの違い
+
+`regression`のNOT READYは、Observability Contractが意図した欠損を正しく検出した結果です。`run-demo.sh`は期待したNOT READYを正常終了として扱うため、Phase 7のGitHub Actions JobもSUCCESSになります。Phase 7はPRR Integrationのデモであり、NOT READYをMerge Gateにするのは次Phaseです。
+
+一方、Functional Test、Docker、Change Tracking API、Readiness Check実行、Workflow Automation Start API、必須Secret/Variableなどに異常があればスクリプトが非0で終了し、JobはFAILします。PRR判定結果とPRRシステムの実行エラーを混同しません。
+
+最後のcleanup stepは`if: always()`で`docker compose down -v`を実行するため、成功・失敗にかかわらずcontainer、network、volumeを片付けます。

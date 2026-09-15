@@ -53,3 +53,6 @@ printf 'readinessResult:\n%s\n\n' "$readiness_result"
 printf 'failedChecks:\n%s\n' "$failed_checks"
 printf '\nslackDestinationId:\n%s\n' "${SLACK_DESTINATION_ID:-<set in .env>}"
 printf '\nslackChannel:\n%s\n' "${SLACK_CHANNEL:-<set in .env>}"
+
+printf '\nWorkflow Automation\n'
+./scripts/start-prr-workflow.sh "$readiness_result" "$failed_checks"
