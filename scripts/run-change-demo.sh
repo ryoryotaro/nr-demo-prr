@@ -20,8 +20,12 @@ demo_run_id="${DEMO_RUN_ID:-$(date -u '+%Y%m%d-%H%M%S')-$$}"
 export DEMO_RUN_ID="$demo_run_id"
 export OBSERVABILITY_MODE="$mode"
 
-readiness_report="$(mktemp)"
-trap 'rm -f "$readiness_report"' EXIT HUP INT TERM
+if [ -n "${READINESS_JSON_OUTPUT:-}" ]; then
+  readiness_report="$READINESS_JSON_OUTPUT"
+else
+  readiness_report="$(mktemp)"
+  trap 'rm -f "$readiness_report"' EXIT HUP INT TERM
+fi
 export READINESS_JSON_OUTPUT="$readiness_report"
 
 cd "$repo_dir"

@@ -1,0 +1,78 @@
+name: Production Readiness Review Gate
+
+on:
+  pull_request:
+    branches:
+      - main
+    types:
+      - opened
+      - synchronize
+      - reopened
+
+permissions:
+  contents: read
+
+jobs:
+  prr-gate:
+    name: Production Readiness Review Gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      NEW_RELIC_LICENSE_KEY: ${{ secrets.NEW_RELIC_LICENSE_KEY }}
+      NEW_RELIC_USER_KEY: ${{ secrets.NEW_RELIC_USER_KEY }}
+      NEW_RELIC_ACCOUNT_ID: ${{ secrets.NEW_RELIC_ACCOUNT_ID }}
+      NEW_RELIC_NERDGRAPH_ENDPOINT: https://api.newrelic.com/graphql
+      SLACK_DESTINATION_ID: ${{ vars.SLACK_DESTINATION_ID }}
+      SLACK_CHANNEL: ${{ vars.SLACK_CHANNEL }}
+      GITHUB_REPOSITORY_URL: ${{ github.server_url }}/${{ github.repository }}
+      GITHUB_PR_URL: ${{ github.event.pull_request.html_url }}
+      PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+
+    steps:
+      - name: Check out pull request head
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Verify prerequisites and pull request commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          for name in NEW_RELIC_LICENSE_KEY NEW_RELIC_USER_KEY NEW_RELIC_ACCOUNT_ID SLACK_DESTINATION_ID SLACK_CHANNEL; do
+            if [[ -z "${!name:-}" ]]; then
+              echo "Required GitHub Secret or Variable is missing: $name" >&2
+              exit 1
+            fi
+          done
+          checked_out_sha="$(git rev-parse HEAD)"
+          if [[ "$checked_out_sha" != "$PR_HEAD_SHA" ]]; then
+            echo "Checked-out commit does not match the pull request head SHA." >&2
+            exit 1
+          fi
+          echo "Pull request head commit: $checked_out_sha"
+          docker compose version
+
+      - name: Run pre-flight tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test ./...
+          go vet ./...
+          for script in scripts/*.sh; do
+            sh -n "$script"
+          done
+
+      - name: Run Production Readiness Review gate
+        run: ./scripts/run-prr-gate.sh
+
+      - name: Clean up Docker Compose
+        if: always()
+        run: docker compose down -v

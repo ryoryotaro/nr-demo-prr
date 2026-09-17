@@ -920,3 +920,67 @@ Readiness CLIへ`--json-output <path>`を追加しました。通常の人間向
 Autopilotのprimary scopeは`demoRunId`です。customer.planはcurrent `demo.run_id`のcheckout Telemetryだけで調査します。Trace continuityはcurrent runから得たcheckoutの`trace.id`にpaymentが存在するかで調査します。時間窓は問い合わせ範囲の補助にしか使わず、別runのTelemetry、transaction count、throughput、error rate、Functional Test成功をTrace continuityの証拠にしません。
 
 `demo.run_id`を直接持たないTelemetryは、current runから導出した`trace.id`、transaction IDなどで関連付けられる場合だけ利用します。関連付けできないTelemetryを別runのデータで代用しません。READY / NOT READYの判定、GitHub ActionsのSUCCESS semantics、Slack blocks、native Autopilot responseの転送方法は変更していません。
+
+## Phase 8: Pull Request Production Readiness Gate
+
+Phase 8では手動デモとは別に、main向けPull Requestのコードを通常状態で検証する`Production Readiness Review Gate`を追加します。
+
+```text
+Pull Request
+    ↓
+checkout PR head SHA
+    ↓
+go test / go vet / Docker Compose
+    ↓
+Functional Test
+    ↓
+New Relic Telemetry + Change Tracking
+    ↓
+Deterministic Observability Contract
+    ├── READY ─────► Workflow Automation ─► Slack READY ─────► GitHub Check PASS
+    │                         Autopilotなし
+    └── NOT READY ─► Workflow Automation ─► Slack + Autopilot ─► GitHub Check FAIL
+```
+
+Functional TestがPASSすることとProduction Readyであることは同じではありません。HTTP処理が成功しても、必須のbusiness attributeや分散Traceが観測できなければPR GateはFAILします。
+
+### Manual Demoとの違い
+
+- `Production Readiness Review Demo`: `workflow_dispatch`で`complete`または`regression`を選ぶデモ。意図したNOT READYはJob SUCCESSとして扱う。
+- `Production Readiness Review Gate`: `pull_request`でPRの実コードを`complete`条件として評価する。実際のContract結果がNOT READYならJob FAILUREにする。
+
+Gateは`OBSERVABILITY_MODE=regression`を使いません。`run-prr-gate.sh`が`run-change-demo.sh complete`を呼び、同じReadiness実行が作成したJSON reportを読みます。modeやbranch名から結果を推測しません。READY/NOT READYのいずれでも、先にWorkflow Automationを開始してSlackへ正式結果を委譲し、その後にGateの終了コードを決定します。Readiness実行ERROR、Functional Test失敗、Change Tracking失敗、Workflow Start失敗はシステムERRORとしてJobをFAILさせます。
+
+### PR head SHAとSecurity
+
+`prr-gate.yml`は`github.event.pull_request.head.sha`を明示的にcheckoutし、`git rev-parse HEAD`との一致を確認します。Change Trackingも既存の`record-change.sh`がそのHEADを読むため、GitHub生成のmerge commitではなくレビュー対象のPR head commitが記録されます。
+
+Workflowは通常の`pull_request`を使用し、`pull_request_target`は使用しません。このデモはSecretsを利用できるsame-repository branchからのPRを前提とします。Fork PRではGitHubのsecurity policyによりSecretsが渡らず、Gateを実行できない場合があります。New Relic key、Slack Bot Token、WebhookはWorkflowやログへ出力しません。
+
+### Observability regression PRの作成
+
+基盤をmainへ反映した後、`demo/break-observability`からPRを作成します。このbranchでは通常のcomplete動作について、`customer.plan`のTransaction attribute追加とcheckoutからpaymentへのNew Relic instrumented HTTP transportだけを外します。HTTP呼び出し自体は維持するためFunctional TestはPASSし、実Telemetryに基づくContractはNOT READYになります。
+
+```sh
+git push origin demo/prr-pull-request-gate
+# Phase 8基盤をmainへ反映した後
+git push origin demo/break-observability
+```
+
+PR title例:
+
+```text
+Demo: break observability for PRR gate
+```
+
+PR description例:
+
+```text
+This pull request demonstrates that functional success does not guarantee production readiness.
+
+Application behavior remains healthy, but the change removes customer.plan telemetry and checkout-to-payment distributed trace continuity. The deterministic PRR gate is expected to return NOT READY and fail the GitHub Check after starting the Slack and Autopilot workflow.
+```
+
+### Required Status Checkの手動設定
+
+GitHub上でGateが実行されたことを確認した後、Repositoryの **Settings > Branches / Rulesets** でmain用ruleを開き、**Require status checks to pass before merging**を有効にして`Production Readiness Review Gate`を選択します。Branch protectionやRulesetはRepositoryコードやAPIから自動設定しません。
