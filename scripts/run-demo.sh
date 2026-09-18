@@ -34,7 +34,7 @@ fi
 export OBSERVABILITY_MODE="$mode"
 export DEMO_RUN_ID="$demo_run_id"
 
-printf '=== PRR Demo ===\n\n'
+printf '=== PRC Demo ===\n\n'
 printf 'Mode: %s\n' "$mode"
 printf 'Run ID: %s\n\n' "$DEMO_RUN_ID"
 

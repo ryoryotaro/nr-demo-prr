@@ -1,5 +1,5 @@
 name: prr-autopilot
-description: AI assisted Production Readiness Review explanation
+description: AI assisted Production Readiness Check explanation
 
 workflowInputs:
   service:
@@ -43,14 +43,14 @@ steps:
       destinationId: ${{ .workflowInputs.slackDestinationId }}
       channel: ${{ .workflowInputs.slackChannel }}
       text: |-
-        ✅ *Production Readiness Review: READY*
+        ✅ *Production Readiness Check: READY*
 
-        *Service:* ${{ .workflowInputs.service }}
+        *サービス:* ${{ .workflowInputs.service }}
         *Run ID:* ${{ .workflowInputs.demoRunId }}
 
-        All required observability checks passed.
+        必須のオブザーバビリティ要件をすべて満たしています。
 
-        Autopilot review was not required because the deterministic Observability Contract returned READY.
+        決定論的なPRCがREADYと判定したため、Autopilotによる追加調査は実行していません。
     next: end
 
   - name: formatFailedChecks
@@ -67,15 +67,15 @@ steps:
       destinationId: ${{ .workflowInputs.slackDestinationId }}
       channel: ${{ .workflowInputs.slackChannel }}
       text: |-
-        ❌ *Production Readiness Review: NOT READY*
+        ❌ *Production Readiness Check: NOT READY*
 
-        *Service:* ${{ .workflowInputs.service }}
+        *サービス:* ${{ .workflowInputs.service }}
         *Run ID:* ${{ .workflowInputs.demoRunId }}
 
-        *Failed checks:*
+        *満たしていない要件:*
         ${{ .steps.formatFailedChecks.outputs.text }}
 
-        🔎 Autopilot is reviewing the failed observability checks...
+        🔎 Autopilotが満たしていないオブザーバビリティ要件を追加調査しています...
     next: runAutopilot
 
   - name: runAutopilot
@@ -84,22 +84,32 @@ steps:
     version: '1'
     inputs:
       prompt: |-
-        Perform a focused Production Readiness investigation for service ${{ .workflowInputs.service }}.
+        Perform a focused Production Readiness Check investigation for service ${{ .workflowInputs.service }}.
+
+        ==================================================
+        REQUIRED OUTPUT LANGUAGE: JAPANESE
+        ==================================================
+
+        Write the entire final answer in Japanese without exception. Write every heading, explanation, analysis, verification result, business impact, recommendation, and next investigation step in Japanese. Even when inputs, telemetry, NRQL results, Memory, or New Relic UI data are in English, do not switch the response body to English.
+
+        Preserve the original English spelling only for service names, attribute names, trace.id, demo.run_id, code, function names, API names, and New Relic-specific product or technical names. Do not translate identifiers such as customer.plan, tenant.id, or prr-demo-payment. If JSON is necessary, write all surrounding explanation in Japanese.
+
+        In the Japanese answer, refer to this deterministic process as "PRC" or "Production Readiness Check", never "PRR" or "Production Readiness Review". Prefer the Japanese phrase "オブザーバビリティ要件" when referring to the Observability Contract requirements.
 
         ==================================================
         CURRENT RUN IS THE PRIMARY SCOPE
         ==================================================
 
-        The investigation scope is the current PRR run identified by demoRunId = ${{ .workflowInputs.demoRunId }}. This demoRunId is the primary correlation key. Do not evaluate the service using an entity-wide time window. Do not use unrelated telemetry from previous or later demoRunIds as evidence for this run.
+        The investigation scope is the current PRC run identified by demoRunId = ${{ .workflowInputs.demoRunId }}. This demoRunId is the primary correlation key. Do not evaluate the service using an entity-wide time window. Do not use unrelated telemetry from previous or later demoRunIds as evidence for this run.
 
         The deterministic Observability Contract already returned ${{ .workflowInputs.readinessResult }}. That result is authoritative. Do not re-evaluate or override it. Investigate only these failed checks: ${{ .workflowInputs.failedChecks }}.
 
-        Authoritative PRR evidence:
+        Authoritative PRC evidence:
         ${{ .workflowInputs.readinessEvidence }}
 
         This evidence was produced by the deterministic Observability Contract check. Treat these current-run failed-check facts as established. Do not contradict or re-evaluate them using telemetry from other runs.
 
-        A missing attribute or broken trace is a verified telemetry symptom, not a verified implementation root cause. Never label an implementation explanation as "Cause" or "Root cause" unless it is directly proven by current-run evidence. Otherwise explicitly state that the implementation-level cause is unknown and describe possibilities only as inference. Do not include code snippets or prescribe a specific header, function, API, agent setting, or code path that was not directly verified.
+        A missing attribute or broken trace is a verified telemetry symptom, not a verified implementation root cause. Never label an implementation explanation as "Cause" or "Root cause" unless it is directly proven by current-run evidence. Otherwise explicitly state in Japanese that the implementation-level cause is unknown and describe possibilities only as inference or investigation candidates. Do not include code snippets or prescribe a specific header, function, API, agent setting, or code path that was not directly verified. In particular, do not state that W3C TraceContext headers were not propagated, newrelic.NewRoundTripper was not used, DistributedTracer.Enabled was disabled, or an Enterprise SLA violation is likely unless current-run evidence directly proves that statement.
 
         For customer.plan, inspect only checkout telemetry where `demo.run_id` equals the current demoRunId. Never use customer.plan coverage from the service as a whole or from another run as evidence for this run.
 
@@ -149,7 +159,7 @@ steps:
     inputs:
       destinationId: ${{ .workflowInputs.slackDestinationId }}
       channel: ${{ .workflowInputs.slackChannel }}
-      blocks: '${{ (.steps.runAutopilot.outputs.response // "") as $raw | (if ($raw|type)=="string" then ($raw | try fromjson catch $raw) else $raw end) as $r | (if ($r|type)=="object" and ($r.card.body|type)=="array" then [ $r.card.body[] | select(.type=="Text" and (.value|type)=="string") | .value ] elif ($r|type)=="array" then [ $r[] | if (.type=="Text" and (.value|type)=="string") then .value elif (.text|type)=="string" then .text else empty end ] elif ($r|type)=="object" and ($r.text|type)=="string" then [ $r.text ] elif ($r|type)=="string" then [ $r ] else [ $raw|tostring ] end) as $cards | [{"type":"section","text":{"type":"mrkdwn","text":"❌ *Production Readiness Review: NOT READY*\n\n*Service:* \(.workflowInputs.service)\n*Run ID:* \(.workflowInputs.demoRunId)\n\n*Failed checks:*\n\(.steps.formatFailedChecks.outputs.text)\n\nThe deterministic Observability Contract returned NOT READY."}},{"type":"divider"},{"type":"section","text":{"type":"mrkdwn","text":"*Autopilot Investigation*"}},{"type":"divider"}] + ([ $cards[] | [range(0; length; 2900) as $i | .[$i:$i+2900]][] ] | map({"type":"section","text":{"type":"mrkdwn","text":.}}) | reduce .[] as $block ([]; if length==0 then [$block] else . + [{"type":"divider"},$block] end)) }}'
+      blocks: '${{ (.steps.runAutopilot.outputs.response // "") as $raw | (if ($raw|type)=="string" then ($raw | try fromjson catch $raw) else $raw end) as $r | (if ($r|type)=="object" and ($r.card.body|type)=="array" then [ $r.card.body[] | select(.type=="Text" and (.value|type)=="string") | .value ] elif ($r|type)=="array" then [ $r[] | if (.type=="Text" and (.value|type)=="string") then .value elif (.text|type)=="string" then .text else empty end ] elif ($r|type)=="object" and ($r.text|type)=="string" then [ $r.text ] elif ($r|type)=="string" then [ $r ] else [ $raw|tostring ] end) as $cards | [{"type":"section","text":{"type":"mrkdwn","text":"❌ *Production Readiness Check: NOT READY*\n\n*サービス:* \(.workflowInputs.service)\n*Run ID:* \(.workflowInputs.demoRunId)\n\n*満たしていない要件:*\n\(.steps.formatFailedChecks.outputs.text)\n\n決定論的なPRCの正式な判定はNOT READYです。"}},{"type":"divider"},{"type":"section","text":{"type":"mrkdwn","text":"*Autopilot追加調査*"}},{"type":"divider"}] + ([ $cards[] | [range(0; length; 2900) as $i | .[$i:$i+2900]][] ] | map({"type":"section","text":{"type":"mrkdwn","text":.}}) | reduce .[] as $block ([]; if length==0 then [$block] else . + [{"type":"divider"},$block] end)) }}'
     next: end
 
   - name: sendAutopilotFallback
@@ -160,16 +170,16 @@ steps:
       destinationId: ${{ .workflowInputs.slackDestinationId }}
       channel: ${{ .workflowInputs.slackChannel }}
       text: |-
-        ❌ *Production Readiness Review: NOT READY*
+        ❌ *Production Readiness Check: NOT READY*
 
-        *Service:* ${{ .workflowInputs.service }}
+        *サービス:* ${{ .workflowInputs.service }}
         *Run ID:* ${{ .workflowInputs.demoRunId }}
 
-        *Failed checks:*
+        *満たしていない要件:*
         ${{ .steps.formatFailedChecks.outputs.text }}
 
-        Autopilot review could not be completed.
-        The deterministic PRR result remains NOT READY.
+        Autopilotによる追加調査を完了できませんでした。
+        決定論的なPRCの正式な判定はNOT READYのままです。
     next: end
 
   - name: sendUnexpectedResult
@@ -180,12 +190,12 @@ steps:
       destinationId: ${{ .workflowInputs.slackDestinationId }}
       channel: ${{ .workflowInputs.slackChannel }}
       text: |-
-        ⚠️ *Production Readiness Review: ERROR*
+        ⚠️ *Production Readiness Check: ERROR*
 
-        *Service:* ${{ .workflowInputs.service }}
+        *サービス:* ${{ .workflowInputs.service }}
         *Run ID:* ${{ .workflowInputs.demoRunId }}
 
-        Unexpected readiness result received: `${{ .workflowInputs.readinessResult }}`
+        予期しない判定結果を受信しました: `${{ .workflowInputs.readinessResult }}`
 
-        Autopilot was not started. Please inspect the deterministic readiness check.
+        Autopilotは実行していません。決定論的なPRCを確認してください。
     next: end

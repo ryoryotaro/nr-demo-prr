@@ -34,7 +34,7 @@ if ! commit_sha="$(git rev-parse --verify HEAD 2>/dev/null)"; then
   exit 2
 fi
 
-printf '=== PRR Change Demo ===\n\n'
+printf '=== PRC Change Demo ===\n\n'
 printf 'Mode: %s\n' "$mode"
 printf 'Run ID: %s\n' "$DEMO_RUN_ID"
 printf 'Commit: %s\n' "$commit_sha"
