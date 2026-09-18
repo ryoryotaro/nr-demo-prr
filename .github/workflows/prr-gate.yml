@@ -1,4 +1,4 @@
-name: Production Readiness Review Gate
+name: Production Readiness Check Gate
 
 on:
   pull_request:
@@ -14,7 +14,7 @@ permissions:
 
 jobs:
   prr-gate:
-    name: Production Readiness Review Gate
+    name: Production Readiness Check Gate
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
@@ -70,7 +70,7 @@ jobs:
             sh -n "$script"
           done
 
-      - name: Run Production Readiness Review gate
+      - name: Run Production Readiness Check gate
         run: ./scripts/run-prr-gate.sh
 
       - name: Clean up Docker Compose

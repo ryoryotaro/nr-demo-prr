@@ -154,8 +154,8 @@ func (c *client) createEvent(opts options) (eventResult, error) {
 			"categoryFields": map[string]any{"deployment": deployment},
 		},
 		"entitySearch":     map[string]any{"query": entitySearch},
-		"description":      "PRR demo deployment",
-		"shortDescription": "PRR demo",
+		"description":      "PRC demo deployment",
+		"shortDescription": "PRC demo",
 		"user":             opts.User,
 		"customAttributes": map[string]any{"demoRunId": opts.DemoRunID, "observabilityMode": opts.Mode},
 	}

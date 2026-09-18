@@ -11,7 +11,7 @@ export PRR_ACCEPT_ANY_RESULT=1
 
 cd "$repo_dir"
 if ! ./scripts/run-change-demo.sh complete; then
-  printf '[ERROR] PRR execution failed before a gate result was available.\n' >&2
+  printf '[ERROR] PRC execution failed before a gate result was available.\n' >&2
   exit 2
 fi
 
@@ -25,12 +25,12 @@ failed_checks="$(jq -r '[.checks[] | select(.status == "FAIL") | .name] | if len
 
 if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
   {
-    printf '# Production Readiness Review\n\n'
+    printf '# Production Readiness Check\n\n'
     printf -- '- Service: `prr-demo-checkout`\n'
     printf -- '- PR: `%s`\n' "${PR_NUMBER:-unknown}"
     printf -- '- Commit: `%s`\n' "${PR_HEAD_SHA:-$(git rev-parse HEAD)}"
     printf -- '- Functional Test: `PASS`\n'
-    printf -- '- PRR Result: `%s`\n' "$readiness_result"
+    printf -- '- PRC Result: `%s`\n' "$readiness_result"
     printf -- '- Failed checks: `%s`\n' "$failed_checks"
     printf -- '- Workflow Automation: `STARTED`\n'
     printf -- '- Slack notification: delegated to Workflow Automation\n'
@@ -38,10 +38,10 @@ if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
 fi
 
 if [ "$readiness_result" = "READY" ]; then
-  printf '\n[PASS] Pull Request PRR Gate: READY\n'
+  printf '\n[PASS] Pull Request PRC Gate: READY\n'
   exit 0
 fi
 
-printf '\n[FAIL] Pull Request PRR Gate: NOT READY\n' >&2
+printf '\n[FAIL] Pull Request PRC Gate: NOT READY\n' >&2
 printf 'Failed checks: %s\n' "$failed_checks" >&2
 exit 1

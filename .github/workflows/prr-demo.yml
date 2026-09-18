@@ -1,4 +1,4 @@
-name: Production Readiness Review Demo
+name: Production Readiness Check Demo
 
 on:
   workflow_dispatch:
@@ -68,7 +68,7 @@ jobs:
             sh -n "$script"
           done
 
-      - name: Run Production Readiness Review demo
+      - name: Run Production Readiness Check demo
         run: ./scripts/run-change-demo.sh "${{ inputs.mode }}"
 
       - name: Clean up Docker Compose
